@@ -1,6 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+COLOR_RESET='\033[0m'
+COLOR_RED='\033[31m'
+COLOR_GREEN='\033[32m'
+COLOR_YELLOW='\033[33m'
+COLOR_BLUE='\033[34m'
+COLOR_CYAN='\033[36m'
+
+color_echo() {
+  local color
+  color=$1
+  shift
+  printf '%b\n' "${color}$*${COLOR_RESET}"
+}
+
+info() {
+  color_echo "$COLOR_CYAN" "$@"
+}
+
+success() {
+  color_echo "$COLOR_GREEN" "$@"
+}
+
+warn() {
+  color_echo "$COLOR_YELLOW" "$@"
+}
+
+error() {
+  color_echo "$COLOR_RED" "$@"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="${SCRIPT_DIR}/workspace"
 BIN_DIR="${WORKSPACE_DIR}/bin"
@@ -23,13 +53,13 @@ print_line() {
 
 print_title() {
   print_line
-  printf '%s\n' "Mihomo 一键管理脚本"
+  info "Mihomo 一键管理脚本"
   print_line
 }
 
 ensure_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    printf '%s\n' "请使用 root 运行本脚本，例如: sudo $0"
+    error "请使用 root 运行本脚本，例如: sudo $0"
     exit 1
   fi
 }
@@ -141,11 +171,10 @@ get_socks_port() {
 test_proxy_connectivity() {
   detect_pkg_mgr
   ensure_pkg curl ca-certificates
-  local mixed_port socks_port
+  local mixed_port
   mixed_port=$(get_mixed_port)
-  socks_port=$(get_socks_port)
   print_line
-  printf '%s\n' "启动后通过 HTTP 代理测试连通性"
+  info "启动后通过 HTTP 代理测试连通性"
   printf '使用代理: http://127.0.0.1:%s\n' "$mixed_port"
   local host
   for host in google.com github.com api.github.com; do
@@ -156,8 +185,15 @@ test_proxy_connectivity() {
       printf '%s\n' "失败"
     fi
   done
+  print_proxy_env_hint
+}
+
+print_proxy_env_hint() {
+  local mixed_port socks_port
+  mixed_port=$(get_mixed_port)
+  socks_port=$(get_socks_port)
   print_line
-  printf '%s\n' "可在当前 Shell 中临时使用的环境变量示例:"
+  info "可在当前 Shell 中临时使用的环境变量示例:"
   printf '  export http_proxy=http://127.0.0.1:%s\n' "$mixed_port"
   printf '  export https_proxy=http://127.0.0.1:%s\n' "$mixed_port"
   printf '  export all_proxy=socks5://127.0.0.1:%s\n' "$socks_port"
@@ -214,12 +250,12 @@ download_mihomo_binary() {
   local arch api_json url tmp_file local_file
   arch=$(detect_arch)
   print_line
-  printf '检测到架构: %s\n' "$arch"
+  info "检测到架构: $arch"
   if [ -d "$RESOURCE_DIR" ]; then
     local_file=$(ls "$RESOURCE_DIR"/mihomo-linux-"$arch"* 2>/dev/null | head -n1 || true)
     if [ -n "$local_file" ]; then
       print_line
-      printf '使用本地 mihomo 二进制: %s\n' "$local_file"
+      info "使用本地 mihomo 二进制: $local_file"
       mkdir -p "$(dirname "$MIHOMO_BIN")"
       case "$local_file" in
         *.gz)
@@ -237,16 +273,16 @@ download_mihomo_binary() {
   fi
   api_json=$(curl -fsSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest || true)
   if [ -z "$api_json" ]; then
-    printf '%s\n' "获取 mihomo 版本信息失败"
+    error "获取 mihomo 版本信息失败"
     return 1
   fi
   url=$(printf '%s\n' "$api_json" | grep -oE '"browser_download_url": *"[^"]+"' | grep "linux-$arch" | grep -E '\.gz"|"$' | head -n1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')
   if [ -z "$url" ]; then
-    printf '%s\n' "未找到适合架构的二进制下载地址"
+    error "未找到适合架构的二进制下载地址"
     return 1
   fi
   print_line
-  printf '下载 mihomo: %s\n' "$url"
+  info "下载 mihomo: $url"
   tmp_file=$(mktemp)
   curl -fSL "$url" -o "$tmp_file"
   mkdir -p "$(dirname "$MIHOMO_BIN")"
@@ -274,7 +310,7 @@ download_geo_data() {
   local geoip_url geosite_url
   if [ -d "$RESOURCE_DIR" ] && [ -f "${RESOURCE_DIR}/geoip.dat" ] && [ -f "${RESOURCE_DIR}/geosite.dat" ]; then
     print_line
-    printf '%s\n' "使用本地 geo 数据文件"
+    info "使用本地 geo 数据文件"
     cp "${RESOURCE_DIR}/geoip.dat" "${CONFIG_DIR}/geoip.dat"
     cp "${RESOURCE_DIR}/geosite.dat" "${CONFIG_DIR}/geosite.dat"
     return 0
@@ -282,7 +318,7 @@ download_geo_data() {
   geoip_url="https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat"
   geosite_url="https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"
   print_line
-  printf '%s\n' "下载 geo 数据文件"
+  info "下载 geo 数据文件"
   curl -fSL "$geoip_url" -o "${CONFIG_DIR}/geoip.dat"
   curl -fSL "$geosite_url" -o "${CONFIG_DIR}/geosite.dat"
 }
@@ -291,7 +327,7 @@ install_ui_assets() {
   ensure_dirs
   if [ -d "${RESOURCE_DIR}/metacubexd-ui" ]; then
     print_line
-    printf '%s\n' "使用本地 metacubexd UI 资源"
+    info "使用本地 metacubexd UI 资源"
     rm -rf "$UI_DIR"
     mkdir -p "$UI_DIR"
     if cp -a "${RESOURCE_DIR}/metacubexd-ui/." "$UI_DIR" 2>/dev/null; then
@@ -307,11 +343,11 @@ install_ui_assets() {
     rm -rf "$UI_DIR"
     mkdir -p "$(dirname "$UI_DIR")"
     print_line
-    printf '%s\n' "克隆 metacubexd 仪表盘"
+    info "克隆 metacubexd 仪表盘"
     git clone https://github.com/MetaCubeX/metacubexd.git -b gh-pages "$UI_DIR"
   else
     print_line
-    printf '%s\n' "更新 metacubexd 仪表盘"
+    info "更新 metacubexd 仪表盘"
     git -C "$UI_DIR" pull -r || true
   fi
 }
@@ -323,17 +359,17 @@ generate_config() {
   read -r sub_url || sub_url=""
   printf '%s\n' "$sub_url" >"$SUB_FILE"
   print_line
-  printf '已保存订阅到: %s\n' "$SUB_FILE"
+  info "已保存订阅到: $SUB_FILE"
   if [ -n "$sub_url" ]; then
     detect_pkg_mgr
     ensure_pkg curl ca-certificates
     out="${CONFIG_DIR}/subscription.yaml"
     print_line
-    printf '%s\n' "正在拉取订阅内容..."
+    info "正在拉取订阅内容..."
     if curl -fSL "$sub_url" -o "$out"; then
-      printf '订阅内容已保存到: %s\n' "$out"
+      success "订阅内容已保存到: $out"
     else
-      printf '%s\n' "拉取订阅失败，请检查链接或网络"
+      error "拉取订阅失败，请检查链接或网络"
     fi
   fi
 }
@@ -342,60 +378,60 @@ start_mihomo() {
   ensure_dirs
   if [ -f "$PID_FILE" ]; then
     if kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
-      printf '%s\n' "mihomo 已在运行"
+      warn "mihomo 已在运行"
       return 0
     else
       rm -f "$PID_FILE"
     fi
   fi
   if [ ! -x "$MIHOMO_BIN" ]; then
-    printf '%s\n' "未找到 mihomo 可执行文件，请先安装"
+    error "未找到 mihomo 可执行文件，请先安装"
     return 1
   fi
   if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
     if [ -f "${CONFIG_DIR}/subscription.yaml" ]; then
       print_line
-      printf '%s\n' "未找到配置文件，将使用订阅内容生成配置"
+      info "未找到配置文件，将使用订阅内容生成配置"
       cp "${CONFIG_DIR}/subscription.yaml" "${CONFIG_DIR}/config.yaml"
       sanitize_config_geoip
-      printf '已生成配置文件: %s\n' "${CONFIG_DIR}/config.yaml"
+      success "已生成配置文件: ${CONFIG_DIR}/config.yaml"
     else
-      printf '%s\n' "未找到配置文件: ${CONFIG_DIR}/config.yaml"
-      printf '%s\n' "请先通过菜单 2 配置订阅，或手动下发配置后再启动 mihomo"
+      error "未找到配置文件: ${CONFIG_DIR}/config.yaml"
+      warn "请先通过菜单 2 配置订阅，或手动下发配置后再启动 mihomo"
       return 1
     fi
   fi
   print_line
-  printf '%s\n' "启动 mihomo"
+  info "启动 mihomo"
   nohup "$MIHOMO_BIN" -d "$CONFIG_DIR" >>"$LOG_FILE" 2>&1 &
   echo $! >"$PID_FILE"
   sleep 1
   if kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
-    printf '%s\n' "mihomo 已启动"
+    success "mihomo 已启动"
     test_proxy_connectivity
   else
-    printf '%s\n' "mihomo 启动失败，请查看日志"
+    error "mihomo 启动失败，请查看日志"
   fi
 }
 
 stop_mihomo() {
   if [ ! -f "$PID_FILE" ]; then
-    printf '%s\n' "未找到 PID 文件，可能未运行"
+    warn "未找到 PID 文件，可能未运行"
     return 0
   fi
   local pid
   pid=$(cat "$PID_FILE")
   if kill -0 "$pid" >/dev/null 2>&1; then
     print_line
-    printf '停止 mihomo (PID %s)\n' "$pid"
+    info "停止 mihomo (PID $pid)"
     kill "$pid" || true
     sleep 1
     if kill -0 "$pid" >/dev/null 2>&1; then
-      printf '%s\n' "进程仍在运行，尝试强制结束"
+      warn "进程仍在运行，尝试强制结束"
       kill -9 "$pid" || true
     fi
   else
-    printf '%s\n' "进程不存在，清理 PID 文件"
+    warn "进程不存在，清理 PID 文件"
   fi
   rm -f "$PID_FILE"
 }
@@ -405,24 +441,26 @@ status_mihomo() {
     local pid
     pid=$(cat "$PID_FILE")
     if kill -0 "$pid" >/dev/null 2>&1; then
-      printf 'mihomo 正在运行，PID=%s\n' "$pid"
+      success "mihomo 正在运行，PID=$pid"
+      print_proxy_env_hint
     else
-      printf '%s\n' "PID 文件存在但进程不在运行"
+      warn "PID 文件存在但进程不在运行"
     fi
   else
     local p
     p=$(pgrep -f "$MIHOMO_BIN" | head -n1 || true)
     if [ -n "$p" ]; then
-      printf 'mihomo 可能正在运行，PID=%s\n' "$p"
+      info "mihomo 可能正在运行，PID=$p"
+      print_proxy_env_hint
     else
-      printf '%s\n' "mihomo 未运行"
+      error "mihomo 未运行"
     fi
   fi
 }
 
 show_logs() {
   if [ ! -f "$LOG_FILE" ]; then
-    printf '日志文件不存在: %s\n' "$LOG_FILE"
+    warn "日志文件不存在: $LOG_FILE"
     return 0
   fi
   tail -n 100 -F "$LOG_FILE"
@@ -438,8 +476,8 @@ uninstall_mihomo() {
   print_line
   rm -f "$MIHOMO_BIN" "$PID_FILE"
   rm -rf "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$RUN_DIR"
-  printf '%s\n' "已清理 workspace 内的 mihomo 可执行文件与数据"
-  printf '如需彻底卸载，可直接删除目录: %s\n' "$WORKSPACE_DIR"
+  success "已清理 workspace 内的 mihomo 可执行文件与数据"
+  warn "如需彻底卸载，可直接删除目录: $WORKSPACE_DIR"
 }
 
 install_or_upgrade() {
@@ -496,7 +534,7 @@ menu() {
         exit 0
         ;;
       *)
-        printf '%s\n' "无效选择，请重试"
+        warn "无效选择，请重试"
         ;;
     esac
     printf '%s\n' ""
@@ -546,7 +584,7 @@ main() {
       menu
       ;;
     *)
-      printf '%s\n' "用法: $0 [install|start|stop|restart|status|logs|config|ui|uninstall]"
+      error "用法: $0 [install|start|stop|restart|status|logs|config|ui|uninstall]"
       exit 1
       ;;
   esac
